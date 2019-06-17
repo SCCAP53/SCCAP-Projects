@@ -142,23 +142,11 @@ left JOIN wp_ihc_orders ord ON u.user_id = ord.uid
 left join wp_users users ON u.user_id = users.ID
 
 
-
- WHERE 
- l.level_id is not null
-
-
 Group by u.user_id
 
-Having ##%%HAVING%%
+Having %%HAVING%%
 incomplete = 0
-
 
 ORDER BY u.user_id, "Last Name" DESC
 
---WHERE 
- --u.user_id in (5981, 2377, 3222)
- --AND l.level_id is not null
---  Limit 6000
 
---HAVING
---  AND Membership_Year = YEAR(CURDATE()) + 1
