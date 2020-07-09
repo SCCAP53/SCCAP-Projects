@@ -1,0 +1,12 @@
+name: SCCAP53_File_Cleaner
+title: SCCAP53_File_Cleaner
+username:
+account: sccap53
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1564893
+bundleId: 3370089
+url: https://sccap53.shinyapps.io/SCCAP53_File_Cleaner/
+when: 1594266646.83265
+asMultiple: FALSE
+asStatic: FALSE

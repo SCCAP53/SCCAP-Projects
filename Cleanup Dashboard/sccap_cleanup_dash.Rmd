@@ -1,0 +1,556 @@
+---
+title: "SCCAP Database File Cleaner and Exporter" 
+runtime: shiny 
+output:
+  flexdashboard::flex_dashboard: 
+    navbar:
+    orientation: rows 
+    vertical_layout: scroll 
+    source_code: embed
+    theme: "spacelab"
+    #logo: https://sccap53.org/wp-content/uploads/2019/12/sccap_logo_small.png
+    favicon: https://sccap53.org/wp-content/uploads/2019/12/sccap_logo_small.png
+    # css: 
+    #     - https://github.research.chop.edu/pages/CQI/chop-bootstrap/bootstrap-3/bootstrap.min.css
+    #     - https://github.research.chop.edu/pages/CQI/flexdashboard-theme/css/flexdashboard.min.css
+
+---
+```{r packages, include=FALSE}
+library(flexdashboard)
+library(DT)
+#library(highcharter)
+#library(lubridate)
+library(dplyr)
+#library(rocqi)
+library(readxl)
+library(countrycode)
+library(stringr)
+library(exploratory)
+library(kableExtra)
+library(tidyr)
+library(zipcode)
+library(shinysim)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+
+options(shiny.maxRequestSize=30*1024^2) 
+```
+
+
+```{r input_demo, eval = FALSE}
+input <- list(
+  apa_rawdata = "users.csv",
+  sccap_rawdata = "users.csv"
+)
+```
+
+```{r table_func}
+
+export_table <- function(x, y) {
+  datatable(
+      x,
+      class = "cell-border stripe",
+      # detail_table,
+      rownames = FALSE,
+      filter = "top",
+      extensions = c("Buttons"),
+      plugins = "ellipsis",
+      options =
+        list(
+          select = TRUE,
+          searching = TRUE,
+          search = list(regex = TRUE, caseInsensitive = TRUE),
+          # pageLength = nrow(df_sccap_tbl),
+          lengthMenu = c(5, 10, 15, 20, 50, 100, 150, 200, 300),
+          scrollX = TRUE,
+          scrollY = TRUE,
+          dom = "BRSfrtip",
+          # order = list(6,"desc"),
+          autoWidth = TRUE,
+          buttons = list(
+            list(
+              extend = "copy",
+              text = "Copy All",
+              exportOptions = list(modifier = list(selected = FALSE))
+            ),
+            list(
+              extend = "excel",
+              text = "Excel Export",
+              filename = y,
+              header = TRUE,
+              messageTop = "",
+              title = NULL,
+              exportOptions = list(modifier = list(selected = FALSE))
+            ),
+            list(
+              extend = "csv",
+              text = "CSV Export",
+              filename = y,
+              exportOptions = list(modifier = list(selected = FALSE))
+            )
+          )
+        )
+    )
+  
+  
+}
+
+
+```
+
+APA File Upload Cleaner
+======================================================================
+
+Row
+-----------------------------------------------------------------------
+
+### Select the file from APA that needs to be cleaned for importing into the SCCAP53.ORG membership plugin.  
+Details on what the cleaning process is can be found in the Source Code link.  
+
+```{r apa upload data, eval=TRUE}
+
+## Make a section for user to upload their file
+fileInput("apa_rawdata", "Upload Excel File",
+  multiple = FALSE, accept = c(
+    #"text/csv",
+    #"text/comma-separated-values,text/plain",
+    #".csv",
+    ".xlsx",
+    ".xls"
+  ), width = NULL,
+
+  buttonLabel = "Browse...",
+  placeholder = "No file selected"
+)
+
+```
+
+
+```{r manipulate data}
+## Display the Table
+dataTableOutput("contents")
+
+
+## This is where the processing occurs
+output$contents <- renderDataTable({
+  
+  ## A file is required or the table will not sho
+  req(input$apa_rawdata)
+  
+  ## Grab the data from the uploaded file
+  df <- read_excel(input$apa_rawdata$datapath)
+  
+  ## Used for testing purposes, does not excecute
+  #df <- read_excel("C:/Users/proctors/Repositories/SCCAP/test_update_roster.xlsx")
+
+  #Create the blank fields for input
+  df$user_login <- NA
+  df$user_pass <- NA
+  
+  # Use the year field to make date-specific columns
+  df$level_slug <- paste("apa_member_", df$Year,sep = "")
+  df$start_time <- "31-08-2018"
+  df$expire_time <- paste("31-12-", df$Year, sep = "")
+  
+  # Clean up country data. If there is a US state, then USA, if Country is international, look it up for the full name
+  df$ihc_country <- case_when(
+      df$State %in% state.abb | df$State == "DC" ~ "United States",
+      df$State == "PR" ~ "Puerto Rico",
+      !is.na(df$Country) ~ countrycode(df$Country, origin = "iso3c", destination = "country.name"),
+      TRUE ~ ""
+    )
+  
+  #Filter out when they begin with a number or are not a PO box
+  df$employer <- case_when(
+    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) ~ df$Address_Line1,
+    TRUE ~ ""
+    
+    )
+  #filter out employers with punctuation or numbers in names, as the are likely addresses
+  df$employer <- case_when(
+    grepl("\\d", df$Address_Line1) == TRUE | grepl("^[[:punct:]]", df$Address_Line1) ~ "",
+    TRUE ~ df$employer
+    
+  )
+  #if it is a suite or punctuation mark in add1 then use add2, if there is not a number or po in add1, then use add2
+  df$addr1 <- case_when(
+    
+    grepl("^suite",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line2,
+    
+    grepl("^ste [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line2,
+    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) & is.na(df$Address_Line2) == TRUE ~ df$Address_Line1,
+    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) & is.na(df$Address_Line2) == FALSE ~ df$Address_Line2,
+    grepl("^\\d",df$Address_Line1) == FALSE  ~ df$Address_Line1,
+    TRUE ~ df$Address_Line1
+    
+    )
+  
+  df$addr2 <- case_when(
+    grepl("^ste [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE | grepl("^unit [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line1,
+    df$addr1 == df$Address_Line1 ~ df$Address_Line2,
+    
+    TRUE ~ df$Address_Line3
+  )
+  
+  ## Identify issues with addresses such as not containing an address with a number in it or if we only have a partial address.
+  df$address_needs_repair <- case_when (
+    !grepl("\\d",df$addr1) == TRUE & is.na(df$addr2) == TRUE ~ "Address Incomplete",
+    !grepl("\\d",df$addr1) == TRUE & !grepl("\\d",df$addr2) == TRUE ~ "Needs Numbered Address",
+    
+    TRUE ~ ""
+  )
+
+  # Rename the columns
+  df <- df %>% rename("user_email" = "EMail_Address", "first_name" = "First_Name", "last_name" = "Last_Name", "city" = "City", "ihc_state" = "State", "ihc_zip" = "Zip", "apa_mebmer_number" = "Member_Constit_ID") %>% 
+ select(user_email, user_login, user_pass, level_slug, start_time, expire_time, first_name, last_name, employer, addr1, addr2, city, ihc_state, ihc_country, ihc_zip, apa_mebmer_number, address_needs_repair) 
+  
+  
+  # Change the messy mixed-case of the data
+  df$user_email <- str_to_lower(df$user_email)
+  df$first_name <- str_to_title(df$first_name)
+  df$last_name <- str_to_title(df$last_name)
+  df$employer <- str_to_title(df$employer)
+  df$addr1 <- str_to_title(df$addr1)
+  df$addr2 <- str_to_title(df$addr2)
+  df$city <- str_to_title(df$city)
+  df$ihc_state <- str_to_upper(df$ihc_state)
+  df$ihc_country <- str_to_title(df$ihc_country)
+  
+  #Display eveything in a table
+  datatable(
+  df, class = 'cell-border stripe',
+      #detail_table,
+  rownames = FALSE,
+    filter = "top",
+  extensions = c("Buttons"),
+  plugins = "ellipsis",
+    options =
+    list(
+      select = TRUE,
+      
+      searching = TRUE,
+      search = list(regex = TRUE, caseInsensitive = TRUE),
+      pageLength = nrow(df),
+            lengthMenu = c(5, 10, 15, 20, 50, 100, 150, 200, 300),
+      scrollX = TRUE,
+      scrollY = TRUE,
+      dom = "BRSfrtip",
+      #order = list(6,"desc"),
+      autoWidth = TRUE,
+      buttons = list(
+        list(
+          extend = "copy",
+          text = 'Copy All',
+          exportOptions = list(modifier = list(selected = FALSE))
+        ),
+        list(
+          extend = "csv",
+          text = 'CSV Export',
+          filename = 'clean_import',
+          exportOptions = list(modifier = list(selected = FALSE))
+        ))
+          )
+    ) 
+  }, server = FALSE)
+  
+
+
+```
+
+
+SCCAP Member Data
+======================================================================
+
+
+Row
+-----------------------------------------------------------------------
+
+### Download the membership data from the [SCCAP53.ORG site](https://sccap53.org/wp-admin/admin.php?page=ihc_manage&tab=users)
+Details on what the cleaning process is can be found in the Source Code link.  
+
+
+```{r sccap upload data, eval=TRUE}
+
+## Make a section for user to upload their file
+
+fileInput("sccap_rawdata", "Upload Membership CSV File",
+  multiple = FALSE, accept = c(
+    "text/csv",
+    "text/comma-separated-values,text/plain",
+    ".csv"
+    #".xlsx",
+    #".xls"
+  ), width = NULL,
+
+  buttonLabel = "Browse...",
+  placeholder = "No file selected"
+)
+
+
+```
+
+```{r clean membership data}
+#testcsv <- "users.csv"
+
+
+
+df_sccap <- reactive({
+  
+  testcsv <- input$sccap_rawdata$datapath
+  
+  ## Import most of the data, but exclude lots including the Find a Therapist Data
+  df_sccap <- exploratory::select_columns(exploratory::clean_data_frame(exploratory::read_delim_file(testcsv, ",", quote = "\"", skip = 0, col_names = TRUE, na = c("", "NA"), locale = readr::locale(encoding = "UTF-8", decimal_mark = ".", grouping_mark = ","), trim_ws = TRUE, progress = FALSE)), "Username", "Email", "First Name", "Last Name", "Home Number", "Street Address 1", "Zip/Postal Code", "City", "Country", "State", "Year Highest Degree Awarded", "Employer/Company", "Work Number", "Mobile Number", "APA Member #", "Highest Degree Awarded", "Degree Program and Location", "Employment Setting", "Professional Self-Identity", "Licensed as a psychologist by a State or Provincial psychology Board?", "Licensure Country", "State_1", "License Number", "Year of Birth", "Gender", "Are you of Hispanic/Latino(a), or Spanish origin?", "Please check those that apply.", "Race", "Provision of clinical services", "Research", "Teaching", "Clinical Supervision", "Administration", "Areas of Expertise (Select all that apply)", "Please help us make your membership more valuable and enjoyable. Tell us why you are joining SCCAP. Please check up to 3 reasons that apply.", "How did you hear about SCCAP?", "Select which Division 53 Committees or Task Forces you would like to volunteer with", "Student Level", "Division Fellow Type", "Division 53 Fellow Year", "Street Address 2", "Year you first joined SCCAP?", "Select if you are an International Student", "Your Country of Origin", "APA Life Member", "APA Member?", "Publications:", "Level", "Start time", "Expire time", "Join Date") %>%
+    readr::type_convert() %>%
+
+    ## Rename columnss
+    rename(`Licensure State` = State_1, `Latino Race Options` = `Please check those that apply.`, `Latinx Origin` = `Are you of Hispanic/Latino(a), or Spanish origin?`, `Why Joined SCCAP` = `Please help us make your membership more valuable and enjoyable. Tell us why you are joining SCCAP. Please check up to 3 reasons that apply.`, `Task Forces` = `Select which Division 53 Committees or Task Forces you would like to volunteer with`, `Hear About SCCAP` = `How did you hear about SCCAP?`, `Year First Joined SCCAP` = `Year you first joined SCCAP?`, `Membership Level` = Level) %>%
+
+    ## Create Custom columns for membership data
+    mutate(`Membership Year` = parse_number(str_remove(`Membership Level`, "-")), Is_Student = if_else(str_detect(str_to_upper(`Membership Level`), "STUDENT"), 1, 0), `Member Type` = gsub("[^[:alpha:][:space:]]", "", `Membership Level`)) %>%
+
+    # df_sccap_state <- df_sccap %>% 
+    # mutate(State = state.abb[match(State, state.name)])
+
+#State = state.abb[match(State, state.name)]
+    
+    
+    ## Put columns into Title Case
+    mutate(`First Name` = str_to_title(`First Name`), `Last Name` = str_to_title(`Last Name`), `Employer/Company` = str_to_title(`Employer/Company`), `Street Address 1` = str_to_title(`Street Address 1`), `Street Address 2` = str_to_title(`Street Address 2`), City = str_to_title(City), `State Name` = statecode(State, output_type = "name")
+           #, State = state.abb[match(State, state.name)]
+           ) %>%
+
+    mutate(Full_Name = paste(`First Name`, `Last Name`)) %>% 
+    
+    ## Re-order everything
+    reorder_cols(Email, Username, `Membership Level`, `Membership Year`, Is_Student, `Member Type`, Full_Name, `First Name`, `Last Name`, `Employer/Company`, `Street Address 1`, `Street Address 2`, City, State, `State Name`, Country, `Zip/Postal Code`, `Home Number`, `Work Number`, `Mobile Number`, Gender, Race, `Latinx Origin`, `Latino Race Options`, `Year of Birth`, `APA Member?`, `APA Member #`, `Highest Degree Awarded`, `Year Highest Degree Awarded`, `Student Level`, `Degree Program and Location`, `Employment Setting`, `Division 53 Fellow Year`, `Professional Self-Identity`, `Licensed as a psychologist by a State or Provincial psychology Board?`, `Licensure Country`, `Licensure State`, `License Number`, `Provision of clinical services`, Research, Teaching, `Clinical Supervision`, Administration, `Areas of Expertise (Select all that apply)`, `Why Joined SCCAP`, `Hear About SCCAP`, `Task Forces`, `Division Fellow Type`, `Year First Joined SCCAP`, `Select if you are an International Student`, `Your Country of Origin`, `APA Life Member`, `Publications:`, `Start time`, `Expire time`, `Join Date`)
+  
+  data("zipcode")
+
+  df_sccap$`Zip/Postal Code` <- clean.zipcodes(df_sccap$`Zip/Postal Code`)
+  
+  
+
+  df_sccap <-  df_sccap %>%
+  #filter(!is.na("Zip/Postal Code")) %>% 
+  dplyr::left_join(zipcode, by = c("Zip/Postal Code" = "zip")) %>%
+  #mutate(State = state) %>%
+  #mutate(City = city) %>%
+    ## prevents deleting of city and states from the data if the zip/postal code is null.
+  mutate(State = case_when(
+    !is.na(`Zip/Postal Code`) ~ state,
+    TRUE ~ State
+  )) %>%
+    mutate(City = case_when(
+    !is.na(`Zip/Postal Code`) ~ city,
+    TRUE ~ City
+  )) %>%
+  dplyr::select(-`state`, -city)
+  
+  
+  
+   # Clean up country data. If there is a US state, then USA, if Country is international, look it up for the full name
+  df_sccap$Country <- dplyr::case_when(
+      df_sccap$State %in% state.abb | df_sccap$State == "DC" ~ "United States",
+      df_sccap$State == "PR" ~ "Puerto Rico",
+      #!is.na(df_sccap$Country) ~ df_sccap$Country
+      !is.na(df_sccap$Country) ~ df_sccap$Country,
+      TRUE ~ ""
+    )
+  
+  year_max_val <- df_sccap %>%
+    summarise(`year_max` = max(df_sccap$`Membership Year`, na.rm = TRUE)) #%>%
+    #as.numeric(`year_max`)
+
+  df_sccap$year_max_val <- year_max_val$`year_max`
+   
+
+ return(df_sccap)
+  
+})
+
+
+
+```
+
+
+### Membership Statistics
+
+```{r get membership statistics, eval = TRUE}
+
+tableOutput("sccap_yearly_count")
+
+output$sccap_yearly_count <- function() {
+  req(input$sccap_rawdata)
+
+  df_sccap_year_count <- df_sccap() %>%
+    select(Email, `Membership Year`, Is_Student) %>%
+    dplyr::group_by(Email) %>%
+    summarize_group(group_cols = c(`Membership Year_num` = "Membership Year"), group_funs = c("asnum"), Email = n_distinct(Email), Is_Student = sum(Is_Student, na.rm = TRUE)) %>%
+    filter(!is.na(`Membership Year_num`)) %>%
+    rename(`Membership Year` = `Membership Year_num`, `Number of All Members` = Email, `Numbers of Students` = Is_Student) %>%
+    mutate(`Number of Non-Students` = `Number of All Members` - `Numbers of Students`) %>%
+    knitr::kable("html") %>%
+    kable_styling("striped", full_width = F)
+}
+
+
+```
+
+
+```{r percent_renewed, eval = TRUE}
+
+tableOutput("sccap_percent_renew")
+
+output$sccap_percent_renew <- function() {
+  req(input$sccap_rawdata)
+
+  df_sccap_percent_renew <- df_sccap() %>%
+  rename_all(tolower) %>% 
+  mutate(member = TRUE) %>% 
+  dplyr::group_by(email) %>% 
+  mutate(first_year = min(`membership year`)) %>%
+  ungroup() %>% 
+  complete(email, nesting(`membership year`)) %>%
+  dplyr::group_by(email) %>% 
+  fill(first_year) %>% 
+  filter(`membership year` >= first_year) %>% 
+  mutate(
+    renew = `membership year` == lead(`membership year`) - 1 & lead(member),
+    renew = replace_na(renew, FALSE)
+  ) %>% 
+  ungroup() %>%
+  arrange(email) %>% 
+  filter(!is.na(member))
+
+df_renew <- df_sccap_percent_renew %>% 
+  dplyr::group_by(`membership year`) %>% 
+  summarise(
+    n = sum(member),
+    renew = sum(renew),
+    pct = renew/n
+  ) %>%
+  mutate(pct = pct*100) %>% 
+  mutate(pct = round(pct, 0)) %>% 
+  mutate(pct = paste0(pct, '%')) %>% 
+  ungroup() %>%
+  rename("Membership Year" = `membership year`, "Number of Members" = n, "Number of Renewals" = renew, "Percent Renewed Following Year" = pct) %>% 
+    knitr::kable("html") %>%
+    kable_styling("striped", full_width = F)
+}
+
+
+```
+
+Row {.tabset .tabset-fade data-height=800}
+-------------------------------------
+### Members who have not renewed
+
+
+```{r not renewed, eval = TRUE}
+dataTableOutput("sccap_not_renewed")
+
+
+## This is where the processing occurs
+output$sccap_not_renewed <- renderDataTable(
+  {
+
+    ## A file is required or the table will not sho
+    req(input$sccap_rawdata)
+
+
+    df_sccap_not_renewed_tbl <- df_sccap() %>%
+      dplyr::group_by(Email) %>%
+      dplyr::select(Email, `Membership Level`, `Membership Year`, Is_Student, `Member Type`, `First Name`, `Last Name`) %>%
+      mutate(`Max Membership Year` = max(`Membership Year`)) %>%
+      summarize_group(group_cols = c(`Email` = "Email", `Max Membership Year_num` = "Max Membership Year", `First Name` = "First Name", `Last Name` = "Last Name"), group_funs = c("none", "asnum", "none", "none"), Email_pct_na = na_ratio(Email), `Membership Level` = last(`Membership Level`)) %>%
+      rename(`Most Recent Membership Year` = `Max Membership Year_num`) %>%
+      filter(`Most Recent Membership Year` == (max(`Most Recent Membership Year`, na.rm = TRUE) - 1)) %>% 
+      select(-Email_pct_na)
+      
+
+
+    # Display eveything in a table
+    export_table(x = df_sccap_not_renewed_tbl, y = "sccap_not_renewed")
+   
+  },
+  server = FALSE
+)
+```
+
+
+### Newsletter Addresses
+Includes non-students from the United States who are current in membership. Zip codes and States were cleaned.  
+
+```{r clean-up-newsletter-addresses, eval = TRUE}
+
+newsletter_order <- c("Full Name", "Employer", "Street 1", "Street 2","City", "State", "Zip", "Membership Level")
+
+df_newsletter <- reactive({
+  
+  df_newsletter <- df_sccap() %>% 
+  filter(`Membership Year` >= (`year_max_val`)) %>% 
+  filter(Is_Student == 0) %>% 
+  filter(Country == "United States") %>% 
+  group_by(Email) %>% 
+  filter(`Membership Year` == first(`Membership Year`)) %>% 
+  rename("Full Name" = Full_Name, "Zip" = `Zip/Postal Code`, "Employer" = `Employer/Company`, "Street 1" = `Street Address 1`, "Street 2" = `Street Address 2`)
+  
+df_newsletter <- df_newsletter[, newsletter_order] 
+
+})
+
+
+```
+
+
+```{r make newsletter data table, eval= TRUE}
+### Clean Membership Data Full
+## Display the Table
+dataTableOutput("newsletter_data")
+
+
+## This is where the processing occurs
+output$newsletter_data <- renderDataTable(
+  {
+
+    ## A file is required or the table will not sho
+    req(input$sccap_rawdata)
+
+    # Display eveything in a table
+    export_table(df_newsletter(), y = "newsletter_clean")
+    
+  },
+  server = FALSE
+)
+
+```
+
+
+
+
+
+```{r make sccap data table, eval= FALSE}
+### Clean Membership Data Full
+## Display the Table
+dataTableOutput("sccap_data")
+
+
+## This is where the processing occurs
+output$sccap_data <- renderDataTable(
+  {
+
+    ## A file is required or the table will not sho
+    req(input$sccap_rawdata)
+
+
+    df_sccap_tbl <- df_sccap() %>%
+      select(1:5)
+
+    # Display eveything in a table
+    export_table(df_sccap_tbl, y = "sccap_clean")
+    
+  },
+  server = FALSE
+)
+
+```
+
