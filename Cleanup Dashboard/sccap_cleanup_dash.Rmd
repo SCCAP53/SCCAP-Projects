@@ -11,7 +11,7 @@ output:
     #logo: https://sccap53.org/wp-content/uploads/2019/12/sccap_logo_small.png
     favicon: https://sccap53.org/wp-content/uploads/2019/12/sccap_logo_small.png
     # css: 
-    #     - https://github.research.chop.edu/pages/CQI/chop-bootstrap/bootstrap-3/bootstrap.min.css
+    #     - https://github.research.chop.edu/pages/CQI/chop-bootstrap/bootstrap-4/bootstrap.min.css
     #     - https://github.research.chop.edu/pages/CQI/flexdashboard-theme/css/flexdashboard.min.css
 
 ---
@@ -29,10 +29,10 @@ library(exploratory)
 library(kableExtra)
 library(tidyr)
 library(zipcode)
-library(shinysim)
+#library(shinysim)
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
-options(shiny.maxRequestSize=30*1024^2) 
+options(shiny.maxRequestSize = 30*1024^2) 
 ```
 
 
@@ -360,6 +360,7 @@ df_sccap <- reactive({
     summarise(`year_max` = max(df_sccap$`Membership Year`, na.rm = TRUE)) #%>%
     #as.numeric(`year_max`)
 
+  
   df_sccap$year_max_val <- year_max_val$`year_max`
    
 
@@ -486,8 +487,9 @@ newsletter_order <- c("Full Name", "Employer", "Street 1", "Street 2","City", "S
 
 df_newsletter <- reactive({
   
-  df_newsletter <- df_sccap() %>% 
-  filter(`Membership Year` >= (`year_max_val`)) %>% 
+  df_newsletter <- df_sccap %>% 
+  filter(`Membership Year` >= (`year_max_val`) - 1) %>% 
+ #filter(`Membership Year` >= (2020)) %>% # use this to override specific years for ad hoc
   filter(Is_Student == 0) %>% 
   filter(Country == "United States") %>% 
   group_by(Email) %>% 
