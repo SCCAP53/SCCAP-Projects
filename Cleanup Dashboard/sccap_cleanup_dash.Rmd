@@ -487,7 +487,7 @@ newsletter_order <- c("Full Name", "Employer", "Street 1", "Street 2","City", "S
 
 df_newsletter <- reactive({
   
-  df_newsletter <- df_sccap %>% 
+  df_newsletter <- df_sccap() %>% 
   filter(`Membership Year` >= (`year_max_val`) - 1) %>% 
  #filter(`Membership Year` >= (2020)) %>% # use this to override specific years for ad hoc
   filter(Is_Student == 0) %>% 
