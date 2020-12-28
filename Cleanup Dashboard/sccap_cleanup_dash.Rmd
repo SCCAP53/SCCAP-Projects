@@ -458,17 +458,21 @@ output$sccap_not_renewed <- renderDataTable(
     req(input$sccap_rawdata)
 
 
-    df_sccap_not_renewed_tbl <- df_sccap() %>%
+df_sccap_not_renewed_tbl <- df_sccap() %>%
       dplyr::group_by(Email) %>%
       dplyr::select(Email, `Membership Level`, `Membership Year`, Is_Student, `Member Type`, `First Name`, `Last Name`) %>%
       mutate(`Max Membership Year` = max(`Membership Year`)) %>%
-      summarize_group(group_cols = c(`Email` = "Email", `Max Membership Year_num` = "Max Membership Year", `First Name` = "First Name", `Last Name` = "Last Name"), group_funs = c("none", "asnum", "none", "none"), Email_pct_na = na_ratio(Email), `Membership Level` = last(`Membership Level`)) %>%
+    dplyr::group_by(Email) %>%
+  filter(`Membership Year` == max(`Membership Year`)) %>% 
+      summarize_group(group_cols = c(`Email` = "Email", `Max Membership Year_num` = "Max Membership Year", `First Name` = "First Name", `Last Name` = "Last Name"), group_funs = c("none", "asnum", "none", "none"), Email_pct_na = na_ratio(Email), `Membership Level Label` = (`Membership Level`)) %>%
       rename(`Most Recent Membership Year` = `Max Membership Year_num`) %>%
       filter(`Most Recent Membership Year` == (max(`Most Recent Membership Year`, na.rm = TRUE) - 1)) %>% 
       select(-Email_pct_na)
-      
-
-
+    
+    
+    
+    
+    
     # Display eveything in a table
     export_table(x = df_sccap_not_renewed_tbl, y = "sccap_not_renewed")
    
@@ -489,6 +493,7 @@ df_newsletter <- reactive({
   
   df_newsletter <- df_sccap() %>% 
   filter(`Membership Year` >= (`year_max_val`) - 1) %>% 
+  #filter(`Membership Year` >= (`year_max_val`) - 1) %>%  # when Lynn needs most previous year
  #filter(`Membership Year` >= (2020)) %>% # use this to override specific years for ad hoc
   filter(Is_Student == 0) %>% 
   filter(Country == "United States") %>% 
