@@ -18,10 +18,7 @@ output:
 ```{r packages, include=FALSE}
 library(flexdashboard)
 library(DT)
-#library(highcharter)
-#library(lubridate)
 library(dplyr)
-#library(rocqi)
 library(readxl)
 library(countrycode)
 library(stringr)
@@ -29,7 +26,8 @@ library(exploratory)
 library(kableExtra)
 library(tidyr)
 library(zipcode)
-#library(shinysim)
+library(readr)
+
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
 options(shiny.maxRequestSize = 30*1024^2) 
@@ -39,7 +37,8 @@ options(shiny.maxRequestSize = 30*1024^2)
 ```{r input_demo, eval = FALSE}
 input <- list(
   apa_rawdata = "users.csv",
-  sccap_rawdata = "users.csv"
+  sccap_rawdata = "users.csv",
+  chimp_rawdata = "subscribed_members_export_067af23665.csv"
 )
 ```
 
@@ -126,69 +125,64 @@ fileInput("apa_rawdata", "Upload Excel File",
 
 
 ```{r manipulate data}
-## Display the Table
-dataTableOutput("contents")
 
-
-## This is where the processing occurs
-output$contents <- renderDataTable({
-  
-  ## A file is required or the table will not sho
+df_apa_clean <- reactive({
+  ## A file is required or the table will not show
   req(input$apa_rawdata)
   
   ## Grab the data from the uploaded file
   df <- read_excel(input$apa_rawdata$datapath)
   
-  ## Used for testing purposes, does not excecute
-  #df <- read_excel("C:/Users/proctors/Repositories/SCCAP/test_update_roster.xlsx")
+  ## Used for testing purposes, does not execute
+  #df <- read_excel("C:/Repositories/SCCAP-Projects/Cleanup Dashboard/APA members as of 3.15.2021.xlsx")
 
   #Create the blank fields for input
   df$user_login <- NA
   df$user_pass <- NA
   
   # Use the year field to make date-specific columns
-  df$level_slug <- paste("apa_member_", df$Year,sep = "")
-  df$start_time <- "31-08-2018"
-  df$expire_time <- paste("31-12-", df$Year, sep = "")
+  df$level_slug <- paste("apa_member_", df$`Membership Year`,sep = "") #df$`Membership Year`
+  df$start_time <- paste0("31-08-", df$`Membership Year`-1)
+  df$expire_time <- paste("31-12-", df$`Membership Year`, sep = "")
   
   # Clean up country data. If there is a US state, then USA, if Country is international, look it up for the full name
   df$ihc_country <- case_when(
-      df$State %in% state.abb | df$State == "DC" ~ "United States",
-      df$State == "PR" ~ "Puerto Rico",
-      !is.na(df$Country) ~ countrycode(df$Country, origin = "iso3c", destination = "country.name"),
-      TRUE ~ ""
+      df$`Mailing State` %in% state.abb | df$`Mailing State` == "DC" ~ "United States",
+      df$`Mailing State` == "PR" ~ "Puerto Rico",
+      !is.na(df$`Mailing Country`) ~ df$`Mailing Country`
+      ,TRUE ~ ""
     )
-  
+
   #Filter out when they begin with a number or are not a PO box
   df$employer <- case_when(
-    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) ~ df$Address_Line1,
+    grepl("^\\d",df$Address1) == FALSE & !grepl("po box",df$Address1,ignore.case=TRUE) ~ df$Address1,
     TRUE ~ ""
     
     )
   #filter out employers with punctuation or numbers in names, as the are likely addresses
   df$employer <- case_when(
-    grepl("\\d", df$Address_Line1) == TRUE | grepl("^[[:punct:]]", df$Address_Line1) ~ "",
+    grepl("\\d", df$Address1) == TRUE | grepl("^[[:punct:]]", df$Address1) ~ "",
     TRUE ~ df$employer
     
   )
   #if it is a suite or punctuation mark in add1 then use add2, if there is not a number or po in add1, then use add2
   df$addr1 <- case_when(
     
-    grepl("^suite",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line2,
+    grepl("^suite",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
     
-    grepl("^ste [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line2,
-    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) & is.na(df$Address_Line2) == TRUE ~ df$Address_Line1,
-    grepl("^\\d",df$Address_Line1) == FALSE & !grepl("po box",df$Address_Line1,ignore.case=TRUE) & is.na(df$Address_Line2) == FALSE ~ df$Address_Line2,
-    grepl("^\\d",df$Address_Line1) == FALSE  ~ df$Address_Line1,
-    TRUE ~ df$Address_Line1
+    grepl("^ste [[:punct:]]",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
+    grepl("^\\d",df$Address1) == FALSE & !grepl("po box",df$Address1,ignore.case=TRUE) & is.na(df$Address2) == TRUE ~ df$Address2,
+    grepl("^\\d",df$Address2) == FALSE & !grepl("po box",df$Address2,ignore.case=TRUE) & is.na(df$Address2) == FALSE ~ df$Address2,
+    grepl("^\\d",df$Address2) == FALSE  ~ df$Address1,
+    TRUE ~ df$Address1
     
     )
   
   df$addr2 <- case_when(
-    grepl("^ste [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE | grepl("^unit [[:punct:]]",df$Address_Line1,ignore.case=TRUE) == TRUE ~ df$Address_Line1,
-    df$addr1 == df$Address_Line1 ~ df$Address_Line2,
+    grepl("^ste [[:punct:]]",df$Address1,ignore.case=TRUE) == TRUE | grepl("^unit [[:punct:]]",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address1,
+    df$addr1 == df$Address1 ~ df$Address2,
     
-    TRUE ~ df$Address_Line3
+    TRUE ~ df$Address3
   )
   
   ## Identify issues with addresses such as not containing an address with a number in it or if we only have a partial address.
@@ -200,7 +194,7 @@ output$contents <- renderDataTable({
   )
 
   # Rename the columns
-  df <- df %>% rename("user_email" = "EMail_Address", "first_name" = "First_Name", "last_name" = "Last_Name", "city" = "City", "ihc_state" = "State", "ihc_zip" = "Zip", "apa_mebmer_number" = "Member_Constit_ID") %>% 
+  df <- df %>% rename("user_email" = "Email", "first_name" = "First Name", "last_name" = "Last Name", "city" = "Mailing City", "ihc_state" = "Mailing State", "ihc_zip" = "Zip Code", "apa_mebmer_number" = "Constit ID") %>% 
  select(user_email, user_login, user_pass, level_slug, start_time, expire_time, first_name, last_name, employer, addr1, addr2, city, ihc_state, ihc_country, ihc_zip, apa_mebmer_number, address_needs_repair) 
   
   
@@ -215,9 +209,31 @@ output$contents <- renderDataTable({
   df$ihc_state <- str_to_upper(df$ihc_state)
   df$ihc_country <- str_to_title(df$ihc_country)
   
-  #Display eveything in a table
+#   
+# df_repair <- df %>% 
+#     filter(!(address_needs_repair) == "") %>%
+#     group_by(address_needs_repair) %>%
+#     summarise("Total" = n())
+# 
+#     df_incomplete <- df_repair$Total[1]
+  
+  return(df)
+  
+})
+
+```
+
+
+``` {r display_clean_apa}
+## Display the Table
+dataTableOutput("contents")
+
+## This is where the processing occurs
+output$contents <- renderDataTable({
+
+  #Display everything in a table
   datatable(
-  df, class = 'cell-border stripe',
+  df_apa_clean(), class = 'cell-border stripe',
       #detail_table,
   rownames = FALSE,
     filter = "top",
@@ -251,10 +267,40 @@ output$contents <- renderDataTable({
           )
     ) 
   }, server = FALSE)
-  
+
 
 
 ```
+
+
+Row
+-----------------------------------------------------------------------
+
+### Incomplete Addresses  
+These may be missing entirely or lacking address numbers, etc.
+
+``` {r value_incomplete, eval = TRUE}
+
+valueBoxOutput("incomplete_val")
+
+# This is where the processing occurs
+output$incomplete_val <- renderValueBox({
+  df_repair <- df_apa_clean() %>%
+    filter(!(address_needs_repair) == "") %>%
+    #group_by(address_needs_repair) %>%
+    summarise("Total" = n())
+
+    df_incomplete <- df_repair$Total[1]
+
+
+  valueBox(df_incomplete,
+           #caption = "Missing  information",
+           icon = "fa-exclamation-triangle")
+})
+
+
+```
+
 
 
 SCCAP Member Data
@@ -318,10 +364,15 @@ df_sccap <- reactive({
            #, State = state.abb[match(State, state.name)]
            ) %>%
 
-    mutate(Full_Name = paste(`First Name`, `Last Name`)) %>% 
+    mutate(Full_Name = paste(`First Name`, `Last Name`)) #%>% 
     
     ## Re-order everything
-    reorder_cols(Email, Username, `Membership Level`, `Membership Year`, Is_Student, `Member Type`, Full_Name, `First Name`, `Last Name`, `Employer/Company`, `Street Address 1`, `Street Address 2`, City, State, `State Name`, Country, `Zip/Postal Code`, `Home Number`, `Work Number`, `Mobile Number`, Gender, Race, `Latinx Origin`, `Latino Race Options`, `Year of Birth`, `APA Member?`, `APA Member #`, `Highest Degree Awarded`, `Year Highest Degree Awarded`, `Student Level`, `Degree Program and Location`, `Employment Setting`, `Division 53 Fellow Year`, `Professional Self-Identity`, `Licensed as a psychologist by a State or Provincial psychology Board?`, `Licensure Country`, `Licensure State`, `License Number`, `Provision of clinical services`, Research, Teaching, `Clinical Supervision`, Administration, `Areas of Expertise (Select all that apply)`, `Why Joined SCCAP`, `Hear About SCCAP`, `Task Forces`, `Division Fellow Type`, `Year First Joined SCCAP`, `Select if you are an International Student`, `Your Country of Origin`, `APA Life Member`, `Publications:`, `Start time`, `Expire time`, `Join Date`)
+    
+    col_order <- c("Email", "Username", "Membership Level", "Membership Year", "Is_Student", "Member Type", "Full_Name", "First Name", "Last Name", "Employer/Company", "Street Address 1", "Street Address 2", "City", "State", "State Name", "Country", "Zip/Postal Code", "Home Number", "Work Number", "Mobile Number", "Gender", "Race", "Latinx Origin", "Latino Race Options", "Year of Birth", "APA Member?", "APA Member #", "Highest Degree Awarded", "Year Highest Degree Awarded", "Student Level", "Degree Program and Location", "Employment Setting", "Division 53 Fellow Year", "Professional Self-Identity", "Licensed as a psychologist by a State or Provincial psychology Board?", "Licensure Country", "Licensure State", "License Number", "Provision of clinical services", "Research", "Teaching", "Clinical Supervision", "Administration", "Areas of Expertise (Select all that apply)", "Why Joined SCCAP", "Hear About SCCAP", "Task Forces", "Division Fellow Type", "Year First Joined SCCAP", "Select if you are an International Student", "Your Country of Origin", "APA Life Member", "Publications:", "Start time", "Expire time", "Join Date")
+    
+    df_sccap <- df_sccap[, col_order]
+    
+    # reorder_cols(Email, Username, `Membership Level`, `Membership Year`, Is_Student, `Member Type`, Full_Name, `First Name`, `Last Name`, `Employer/Company`, `Street Address 1`, `Street Address 2`, City, State, `State Name`, Country, `Zip/Postal Code`, `Home Number`, `Work Number`, `Mobile Number`, Gender, Race, `Latinx Origin`, `Latino Race Options`, `Year of Birth`, `APA Member?`, `APA Member #`, `Highest Degree Awarded`, `Year Highest Degree Awarded`, `Student Level`, `Degree Program and Location`, `Employment Setting`, `Division 53 Fellow Year`, `Professional Self-Identity`, `Licensed as a psychologist by a State or Provincial psychology Board?`, `Licensure Country`, `Licensure State`, `License Number`, `Provision of clinical services`, Research, Teaching, `Clinical Supervision`, Administration, `Areas of Expertise (Select all that apply)`, `Why Joined SCCAP`, `Hear About SCCAP`, `Task Forces`, `Division Fellow Type`, `Year First Joined SCCAP`, `Select if you are an International Student`, `Your Country of Origin`, `APA Life Member`, `Publications:`, `Start time`, `Expire time`, `Join Date`)
   
   data("zipcode")
 
@@ -561,3 +612,109 @@ output$sccap_data <- renderDataTable(
 
 ```
 
+Mailchimp Cleanup
+======================================================================
+
+
+Row
+-----------------------------------------------------------------------
+
+### Export the Mailchimp audience [mailchimp.com](https://us18.admin.mailchimp.com/lists/exports?id=2719)
+Select the csv file "subscribed_members_export"
+
+
+
+```{r sccap-mailchimp-data, eval=TRUE}
+
+## Make a section for user to upload their file
+
+fileInput("chimp_rawdata", "Upload Mailchimp Subscribed Members CSV File",
+  multiple = FALSE, accept = c(
+    "text/csv",
+    "text/comma-separated-values,text/plain",
+    ".csv"
+    #".xlsx",
+    #".xls"
+  ), width = NULL,
+
+  buttonLabel = "Browse...",
+  placeholder = "No file selected"
+)
+
+
+```
+
+```{r manipulate-chimp data}
+
+
+
+## This is where the processing occurs
+#output$contents <- renderDataTable({
+  
+  ## A file is required or the table will not show
+  #req(input$chimp_rawdata)
+  
+  ## Grab the data from the uploaded file
+  #df_chimp <- read_excel(input$chimp_rawdata$datapath)
+  
+  
+  ## Used for testing purposes, does not execute
+  #df_chimp <- read.csv("subscribed_members_export_067af23665.csv")
+  
+#   library(readr)
+# df_chimp <- read_csv("subscribed_members_export_067af23665.csv", 
+#     col_types = cols(`Membership Level` = col_character(), 
+#         MEMBER_RATING = col_skip(), OPTIN_TIME = col_skip(), 
+#         OPTIN_IP = col_skip(), CONFIRM_TIME = col_skip(), 
+#         CONFIRM_IP = col_skip(), LATITUDE = col_skip(), 
+#         LONGITUDE = col_skip(), GMTOFF = col_skip(), 
+#         DSTOFF = col_skip(), TIMEZONE = col_skip(), 
+#         CC = col_skip(), REGION = col_skip(), 
+#         LAST_CHANGED = col_skip(), LEID = col_skip(), 
+#         EUID = col_skip(), NOTES = col_skip(), 
+#         TAGS = col_skip()))
+
+
+
+```
+
+```{r make chimp data table, eval=TRUE}
+### Clean Membership Data Full
+## Display the Table
+dataTableOutput("chimp_data")
+
+
+## This is where the processing occurs
+output$chimp_data <- renderDataTable(
+  {
+
+    ## A file is required or the table will not show
+    req(input$chimp_rawdata)
+
+df_chimp <- read_csv("subscribed_members_export_067af23665.csv", 
+    col_types = cols(`Membership Level` = col_character(),
+        MEMBER_RATING = col_skip(), OPTIN_TIME = col_skip(),
+        OPTIN_IP = col_skip(), CONFIRM_TIME = col_skip(),
+        CONFIRM_IP = col_skip(), LATITUDE = col_skip(),
+        LONGITUDE = col_skip(), GMTOFF = col_skip(),
+        DSTOFF = col_skip(), TIMEZONE = col_skip(),
+        CC = col_skip(), REGION = col_skip(),
+        LAST_CHANGED = col_skip(), LEID = col_skip(),
+        EUID = col_skip(), NOTES = col_skip(),
+        TAGS = col_skip()))
+
+    
+df_chimp$CURRENT_IND <- if_else(str_sub(df_chimp$`Membership Level`,-2,-1) >= 26 & str_sub(df_chimp$`Membership Level`,-2,-1) <=32, 1, 0)
+
+df_chimp$CURRENT_IND <- if_else(is.na(df_chimp$CURRENT_IND ),0, df_chimp$CURRENT_IND )
+    
+    
+    
+    # Display everything in a table
+    export_table(df_chimp, y = "chimp_clean")
+    
+  },
+  server = FALSE
+)
+
+```
