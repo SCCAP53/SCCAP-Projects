@@ -27,6 +27,7 @@ library(kableExtra)
 library(tidyr)
 library(zipcode)
 library(readr)
+library(openxlsx)
 
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
@@ -134,6 +135,7 @@ df_apa_clean <- reactive({
   df <- read_excel(input$apa_rawdata$datapath)
   
   ## Used for testing purposes, does not execute
+  
   #df <- read_excel("C:/Repositories/SCCAP-Projects/Cleanup Dashboard/APA members as of 3.15.2021.xlsx")
 
   #Create the blank fields for input
@@ -145,7 +147,16 @@ df_apa_clean <- reactive({
   df$start_time <- paste0("31-08-", df$`Membership Year`-1)
   df$expire_time <- paste("31-12-", df$`Membership Year`, sep = "")
   
-  # Clean up country data. If there is a US state, then USA, if Country is international, look it up for the full name
+  ##Clean up Zip codes
+  ##Replace slashes with dashes
+  df$`Zip Code` <- str_replace(df$`Zip Code`, "/", "-")
+  
+  data("zipcode")
+
+  df$`Zip Code` <- if_else(grepl("^\\d{5}",df$`Zip Code`) == TRUE,
+    clean.zipcodes(df$`Zip Code`), df$`Zip Code`, missing = df$`Zip Code`)
+  
+    # Clean up country data. If there is a US state, then USA, if Country is international, look it up for the full name
   df$ihc_country <- case_when(
       df$`Mailing State` %in% state.abb | df$`Mailing State` == "DC" ~ "United States",
       df$`Mailing State` == "PR" ~ "Puerto Rico",
@@ -166,14 +177,20 @@ df_apa_clean <- reactive({
     
   )
   #if it is a suite or punctuation mark in add1 then use add2, if there is not a number or po in add1, then use add2
+  #df2 <- df
+  
   df$addr1 <- case_when(
     
     grepl("^suite",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
     
     grepl("^ste [[:punct:]]",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
-    grepl("^\\d",df$Address1) == FALSE & !grepl("po box",df$Address1,ignore.case=TRUE) & is.na(df$Address2) == TRUE ~ df$Address2,
-    grepl("^\\d",df$Address2) == FALSE & !grepl("po box",df$Address2,ignore.case=TRUE) & is.na(df$Address2) == FALSE ~ df$Address2,
+    #grepl("^\\d",df$Address1) == FALSE & grepl("po box",df$Address1,ignore.case=TRUE) == FALSE & is.na(df$Address2) == TRUE ~ df$Address2,
+    grepl("^#",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
+    grepl("^Apt #|^Unit #",df$Address1,ignore.case=TRUE) == TRUE ~ df$Address2,
+    
+    # grepl("^\\d",df$Address2) == FALSE & !grepl("po box",df$Address2,ignore.case=TRUE) & is.na(df$Address2) == FALSE ~ df$Address2,
     grepl("^\\d",df$Address2) == FALSE  ~ df$Address1,
+    #!is.na(df$Address1) == TRUE ~ df$Address1,
     TRUE ~ df$Address1
     
     )
@@ -184,6 +201,26 @@ df_apa_clean <- reactive({
     
     TRUE ~ df$Address3
   )
+  
+## If you have mirrors of each other, null the second one out  
+  df$addr2 <- case_when(
+    df$addr1 == df$addr2 ~ "",
+    
+    TRUE ~ df$addr2
+    
+  )
+  
+## There are times when Address 3 is populated with a value, but we are only allowed two lines of addresses, so we concat 2 and 3. We create an extra addr2 for this purpose or else you'll get doubles.  
+  #df$addr2_orig <- df$addr2
+  
+    df$addr2_new <- case_when(
+    grepl("^\\d|po box|#|\\d",df$Address3,ignore.case=TRUE) == TRUE ~ paste(df$addr2, df$Address3),
+    
+    TRUE ~ df$addr2
+    
+  )
+  
+    df$addr2 <- df$addr2_new
   
   ## Identify issues with addresses such as not containing an address with a number in it or if we only have a partial address.
   df$address_needs_repair <- case_when (
@@ -224,6 +261,39 @@ df_apa_clean <- reactive({
 ```
 
 
+```{r write_apa_csv}
+
+library(openxlsx)
+
+downloadButton("download_apa_Data", label = "Save to Excel")
+
+downloadLink("download_apa_Data_xlxs", "Save to Excel")
+
+downloadLink("download_apa_Data_csv", "    Save to CSV")
+
+output$download_apa_Data_xlxs <- downloadHandler(
+  filename = function() {
+    "clean_apa_data.xlsx"
+  },
+  content = function(file) {
+    write.xlsx(df_apa_clean(), file)
+    #write.csv(df_apa_clean(), file)
+  }
+)
+
+output$download_apa_Data_csv <- downloadHandler(
+  filename = function() {
+    "clean_apa_data.csv"
+  },
+  content = function(file) {
+    write.csv(df_apa_clean(), file)
+    #write.csv(df_apa_clean(), file)
+  }
+)
+
+```
+
+
 ``` {r display_clean_apa}
 ## Display the Table
 dataTableOutput("contents")
@@ -249,21 +319,21 @@ output$contents <- renderDataTable({
             lengthMenu = c(5, 10, 15, 20, 50, 100, 150, 200, 300),
       scrollX = TRUE,
       scrollY = TRUE,
-      dom = "BRSfrtip",
+      dom = "RSfrtip",
       #order = list(6,"desc"),
-      autoWidth = TRUE,
-      buttons = list(
-        list(
-          extend = "copy",
-          text = 'Copy All',
-          exportOptions = list(modifier = list(selected = FALSE))
-        ),
-        list(
-          extend = "csv",
-          text = 'CSV Export',
-          filename = 'clean_import',
-          exportOptions = list(modifier = list(selected = FALSE))
-        ))
+      autoWidth = TRUE
+      # buttons = list(
+      #   list(
+      #     extend = "copy",
+      #     text = 'Copy All',
+      #     exportOptions = list(modifier = list(selected = FALSE))
+      #   ),
+      #   list(
+      #     extend = "csv",
+      #     text = 'CSV Export',
+      #     filename = 'clean_import',
+      #     exportOptions = list(modifier = list(selected = FALSE))
+      #   ))
           )
     ) 
   }, server = FALSE)
