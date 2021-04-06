@@ -231,8 +231,8 @@ df_apa_clean <- reactive({
   )
 
   # Rename the columns
-  df <- df %>% rename("user_email" = "Email", "first_name" = "First Name", "last_name" = "Last Name", "city" = "Mailing City", "ihc_state" = "Mailing State", "ihc_zip" = "Zip Code", "apa_mebmer_number" = "Constit ID") %>% 
- select(user_email, user_login, user_pass, level_slug, start_time, expire_time, first_name, last_name, employer, addr1, addr2, city, ihc_state, ihc_country, ihc_zip, apa_mebmer_number, address_needs_repair) 
+  df <- df %>% rename("user_email" = "Email", "first_name" = "First Name", "last_name" = "Last Name", "city" = "Mailing City", "ihc_state" = "Mailing State", "zip" = "Zip Code", "apa_mebmer_number" = "Constit ID") %>% 
+ select(user_email, user_login, user_pass, level_slug, start_time, expire_time, first_name, last_name, employer, addr1, addr2, city, ihc_state, ihc_country, zip, apa_mebmer_number, address_needs_repair) 
   
   
   # Change the messy mixed-case of the data

@@ -5,9 +5,9 @@ account: sccap53
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 1564893
-bundleId: 4403130
+bundleId: 4437613
 url: https://sccap53.shinyapps.io/SCCAP53_File_Cleaner/
-when: 1616905174.5739
+when: 1617718665.67761
 asMultiple: FALSE
 asStatic: FALSE
 ignoredFiles: subscribed_members_export_067af23665.csv
